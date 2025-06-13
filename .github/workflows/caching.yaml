@@ -1,0 +1,49 @@
+name: Using Cache
+
+on:
+  workflow_dispatch:
+    inputs:
+      use-cache:
+        description: "Whether to execute cache step"        
+        type: string    
+        default: "yes"  
+
+      node-version:
+        description: "Node version"
+        required: false
+        type: choice
+        options:
+          - mi1
+        
+       
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps: 
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.sha }}
+
+      - name: Download cached dependencies
+        id: cache
+        uses: actions/cache@v3
+        with:
+          path: caching/react-app/node_modules
+          key: cache-key-${{hashFiles- github.sha }} 
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Testing
+        run: npm run test
+
+      - name: Building
+        run: npm run build
+
+      - name: Deploying to nonprod
+        run: echo "Deploying to nonprod"
