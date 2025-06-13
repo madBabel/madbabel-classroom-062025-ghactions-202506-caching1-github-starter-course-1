@@ -7,157 +7,172 @@ permissions:
   actions: read
   contents: read
 
-
 jobs:
-  get-workflow-id:
-    outputs:
-      run_id: ${{steps.get_workflow.outputs.run_id}}
+  autograding-tests:
+    if: github.actor != 'github-classroom[bot]'
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-    steps:          
-      - name: Get workFlow Run
-        id: get_workflow
-        uses: madBabel/get-run-id-of-wf-action@v2
-        with:
-            workflow-file: '03-workflow-runners.yaml'    
-            status: 'success'
+      - name: Check file exists
+        id: file
+        run: |
+          test -f .github/workflows/caching.yaml && echo "success" || (echo "fail" && exit 1)
 
-  checkJobs:   
-    needs: get-workflow-id
-    runs-on: ubuntu-latest    
-    outputs: 
-      ubuntuExecuted: ${{steps.check_Steps_for_ubuntu_echo.outputs.stepsExecuted}}
-      windowsExecuted: ${{steps.check_Steps_for_windows_echo.outputs.stepsExecuted}}
-      macExecuted: ${{steps.check_Steps_for_mac_echo.outputs.stepsExecuted}}
-    steps:     
+      - name: Check input definitions
+        id: inputs
+        run: |
+          grep -q "use-cache:" .github/workflows/caching.yaml &&
+          grep -q "type: boolean" .github/workflows/caching.yaml &&
+          grep -q "default: true" .github/workflows/caching.yaml &&
+          grep -q "node-version:" .github/workflows/caching.yaml &&
+          grep -q "type: choice" .github/workflows/caching.yaml &&
+          grep -q "default: 20.x" .github/workflows/caching.yaml &&
+          grep -q "18.x" .github/workflows/caching.yaml &&
+          grep -q "21.x" .github/workflows/caching.yaml &&
+          echo "success" || (echo "fail" && exit 1)
 
-      - name: Check step executed for ubuntu-echo
-        id: check_Steps_for_ubuntu_echo
-        uses: madBabel/check-jobs-steps-gha-action@v3
-        with:
-          run-id: ${{needs.get-workflow-id.outputs.run_id}}
-          job-to-execute: ubuntu-echo      
-        
-      - name: Check step executed for windows-echo
-        id: check_Steps_for_windows_echo
-        uses: madBabel/check-jobs-steps-gha-action@v3
-        with:
-          run-id: ${{needs.get-workflow-id.outputs.run_id}}
-          job-to-execute: windows-echo    
+      - name: Check working-directory is configured
+        id: workingdir
+        run: |
+          grep -q "defaults:" .github/workflows/caching.yaml &&
+          grep -q "working-directory: caching/react-app" .github/workflows/caching.yaml &&
+          echo "success" || (echo "fail" && exit 1)
 
-      - name: Check step executed for mac-echo
-        id: check_Steps_for_mac_echo
-        uses: madBabel/check-jobs-steps-gha-action@v3
-        with:
-          run-id: ${{needs.get-workflow-id.outputs.run_id}}
-          job-to-execute: mac-echo      
-          
+      - name: Check Setup Node uses input
+        id: nodeversion
+        run: |
+          grep -q "node-version: \${{ inputs" .github/workflows/caching.yaml && echo "success" || (echo "fail" && exit 1)
 
-  autograding-reporter:    
-      needs: [checkJobs,get-workflow-id]
-      runs-on: ubuntu-latest    
-      steps:           
-      - name: Run Autograding Step Tests for ub-echo
-        uses: classroom-resources/autograding-io-grader@v1      
+      - name: Check cache step exists and uses hashFiles
+        id: cache_step
+        run: |
+          grep -q "actions/cache@v3" .github/workflows/caching.yaml &&
+          grep -q "key: deps-node-modules-\${{ hashFiles('caching/react-app/package-lock.json') }}" .github/workflows/caching.yaml &&
+          grep -q "path: caching/react-app/node_modules" .github/workflows/caching.yaml &&
+          echo "success" || (echo "fail" && exit 1)
+
+      - name: Check cache step is conditional
+        id: cache_if
+        run: |
+          grep -q "if: \${{ inputs.use-cache == true }}" .github/workflows/caching.yaml &&
+          echo "success" || (echo "fail" && exit 1)
+
+      - name: Check install step is conditional on cache miss
+        id: install_if
+        run: |
+          grep -q "if: \${{ steps.cache.outputs.cache-hit != 'true' }}" .github/workflows/caching.yaml &&
+          echo "success" || (echo "fail" && exit 1)
+
+      - name: Check Deploying step exists
+        id: deploy_step
+        run: |
+          grep -q "Deploying to nonprod" .github/workflows/caching.yaml &&
+          echo "success" || (echo "fail" && exit 1)
+
+  autograding-reporter:
+    needs: autograding-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test 1 - File exists
+        uses: classroom-resources/autograding-io-grader@v1
         id: test1
         with:
-            test-name: 'Test Step executed'   
-            command: 'echo ${{needs.checkJobs.outputs.ubuntuExecuted}}'
-            input: ''
-            expected-output: 'true'
-            comparison-method: 'exact'  
-            max-score: 12
-      - name: Run Autograding Step Tests for win-echo
-        uses: classroom-resources/autograding-io-grader@v1      
+          test-name: 'Workflow file exists'
+          command: 'echo ${{ needs.autograding-tests.outputs.result }}'
+          input: ''
+          expected-output: 'success'
+          comparison-method: 'exact'
+          max-score: 10
+
+      - name: Test 2 - Inputs correctly defined
+        uses: classroom-resources/autograding-io-grader@v1
         id: test2
         with:
-            test-name: 'Test Step executed'   
-            command: 'echo ${{needs.checkJobs.outputs.windowsExecuted}}'
-            input: ''
-            expected-output: 'true'
-            comparison-method: 'exact'  
-            max-score: 12 
-      - name: Run Autograding Step Tests for mac-echo
-        uses: classroom-resources/autograding-io-grader@v1      
+          test-name: 'Inputs are correct'
+          command: 'echo ${{ steps.inputs.outputs.result }}'
+          input: ''
+          expected-output: 'success'
+          comparison-method: 'exact'
+          max-score: 10
+
+      - name: Test 3 - Working directory set
+        uses: classroom-resources/autograding-io-grader@v1
         id: test3
         with:
-            test-name: 'Test Step executed'   
-            command: 'echo ${{needs.checkJobs.outputs.macExecuted}}'
-            input: ''
-            expected-output: 'true'
-            comparison-method: 'exact'  
-            max-score: 16 
+          test-name: 'Working directory set'
+          command: 'echo ${{ steps.workingdir.outputs.result }}'
+          input: ''
+          expected-output: 'success'
+          comparison-method: 'exact'
+          max-score: 10
 
-      - name: Get logs of the latest workflow run
-        id: get_logs
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const run_id = ${{needs.get-workflow-id.outputs.run_id}}
-            const logs = await github.rest.actions.downloadWorkflowRunLogs({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id
-            });
-        
-            const zipUrl = logs.url; 
-
-            if (!zipUrl) {
-              core.setFailed('ZIP URL not found in logs.');
-            }
-            
-            core.setOutput('zip_url', zipUrl); // Envía la URL como salida para usar en el siguiente paso
-
-      - name: Download and unzip the file
-        if: steps.get_logs.outputs.zip_url != ''
-        run: |      
-          curl -L "${{ steps.get_logs.outputs.zip_url }}" -o downloaded_file.zip        
-          mkdir -p unzipped_files
-          unzip downloaded_file.zip -d unzipped_files
-          ls unzipped_files
-
-      - name: Run Autograding Tests for console unbuntu
-        uses: classroom-resources/autograding-io-grader@v1      
+      - name: Test 4 - Node version uses input
+        uses: classroom-resources/autograding-io-grader@v1
         id: test4
         with:
-            test-name: 'Test ubuntu in logs'   
-            command: 'tail -n3 unzipped_files/ubuntu*/*Mostrar*SO*.txt'
-            input: 'OK'
-            expected-output: '.*Runner de Ubuntu.+[\n]*.*Linux.*'
-            comparison-method: 'regex'
-            max-score: 20     
+          test-name: 'Node version is dynamic'
+          command: 'echo ${{ steps.nodeversion.outputs.result }}'
+          input: ''
+          expected-output: 'success'
+          comparison-method: 'exact'
+          max-score: 10
 
-      - name: Run Autograding Tests for console windows
-        uses: classroom-resources/autograding-io-grader@v1      
+      - name: Test 5 - Cache step is correct
+        uses: classroom-resources/autograding-io-grader@v1
         id: test5
         with:
-            test-name: 'Test windows in logs'   
-            command: 'tail -n3 unzipped_files/windows*/*Mostrar*SO.txt'
-            input: 'OK'
-            expected-output: '.*Runner de Windows.+[\n]*.*Windows.*'
-            comparison-method: 'regex'
-            max-score: 20   
-        
+          test-name: 'Cache step valid'
+          command: 'echo ${{ steps.cache_step.outputs.result }}'
+          input: ''
+          expected-output: 'success'
+          comparison-method: 'exact'
+          max-score: 10
 
-      - name: Run Autograding Tests for console mac
-        uses: classroom-resources/autograding-io-grader@v1      
+      - name: Test 6 - Cache step is conditional
+        uses: classroom-resources/autograding-io-grader@v1
         id: test6
         with:
-            test-name: 'Test mac in logs'   
-            command: 'tail -n3 unzipped_files/mac*/*Mostrar*SO*.txt'
-            input: 'OK'
-            expected-output: '.*Runner de MacOS.+[\n]*.*macOS.*'
-            comparison-method: 'regex'
-            max-score: 20  
-            
-      - name: Autograding Reporter
-        uses: classroom-resources/autograding-grading-reporter@v1     
+          test-name: 'Cache step has condition'
+          command: 'echo ${{ steps.cache_if.outputs.result }}'
+          input: ''
+          expected-output: 'success'
+          comparison-method: 'exact'
+          max-score: 10
+
+      - name: Test 7 - Install step depends on cache miss
+        uses: classroom-resources/autograding-io-grader@v1
+        id: test7
         with:
-           runners: test1,test2,test3,test4,test5,test6
+          test-name: 'Install conditional on cache miss'
+          command: 'echo ${{ steps.install_if.outputs.result }}'
+          input: ''
+          expected-output: 'success'
+          comparison-method: 'exact'
+          max-score: 10
+
+      - name: Test 8 - Deploying step exists
+        uses: classroom-resources/autograding-io-grader@v1
+        id: test8
+        with:
+          test-name: 'Deploy step present'
+          command: 'echo ${{ steps.deploy_step.outputs.result }}'
+          input: ''
+          expected-output: 'success'
+          comparison-method: 'exact'
+          max-score: 10
+
+      - name: Final report
+        uses: classroom-resources/autograding-grading-reporter@v1
+        with:
+          runners: test1,test2,test3,test4,test5,test6,test7,test8
         env:
           TEST1_RESULTS: "${{ steps.test1.outputs.result }}"
-          TEST2_RESULTS: "${{ steps.test2.outputs.result }}"   
-          TEST3_RESULTS: "${{ steps.test3.outputs.result }}"   
-          TEST4_RESULTS: "${{ steps.test4.outputs.result }}"   
-          TEST5_RESULTS: "${{ steps.test5.outputs.result }}"   
-          TEST6_RESULTS: "${{ steps.test6.outputs.result }}"     
+          TEST2_RESULTS: "${{ steps.test2.outputs.result }}"
+          TEST3_RESULTS: "${{ steps.test3.outputs.result }}"
+          TEST4_RESULTS: "${{ steps.test4.outputs.result }}"
+          TEST5_RESULTS: "${{ steps.test5.outputs.result }}"
+          TEST6_RESULTS: "${{ steps.test6.outputs.result }}"
+          TEST7_RESULTS: "${{ steps.test7.outputs.result }}"
+          TEST8_RESULTS: "${{ steps.test8.outputs.result }}"
+
